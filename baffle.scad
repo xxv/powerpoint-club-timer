@@ -4,6 +4,9 @@ use <flat_pack_joints/boxmaker.scad>;
 // The size of a piece of baffle_stock material
 baffle_stock = [480, 279, 1.58];   // 11x19
 
+// Housing material thickness (mm)
+thickness = 3;
+
 // the size an individual pixel needs to be
 pixel = [33.334, 33.334, 50];
 
@@ -15,32 +18,37 @@ led_strip_thickness = 0.5;
 apa102 = [5, 5, 1.5];
 
 usb_cutout = [8, 12];
-usb_cutout_offset = 11.4;
-
-button_hole_r = 6;
-button_position = [pixel[0]/2, button_hole_r + 1];
+//usb_cutout_offset = 11.4;
+usb_cutout_offset = 15.4;
 
 clear_acrylic_top = 3;
-lip = clear_acrylic_top/2;
 // inset the baffle so it can be held in place by the walls
 baffle_inset = [1, 1, 0];
 // extra width in etch to make baffle join with wood
 baffle_etch_extra = 0.5;
+lip = clear_acrylic_top/2 + baffle_etch_extra;
+
+button_hole_r = 6;
+button_clearance = 1;
+button_position = [pixel[0]/2, button_hole_r + button_clearance];
+button_holder_h = 10;
+button_holder_w = pixel[0] - baffle_inset[0] - baffle_stock[2]/2;
+// distance between button hole and holder
+button_holder_distance = 8;
+button_holder_clearance = button_position[1] - button_holder_h/2;
+
 
 short_strip_rows = [ for (x = [pixel[0] : pixel[0] : display[0] - pixel[0]]) x ];
 long_strip_rows  = [ for (x = [pixel[1] : pixel[1] : display[1] - pixel[1]]) x ];
 
 
-*cut_strips();
 *cut_top();
-*cut_edges();
+
+*button_holder();
 
 
 enclosure();
 
-
-// Material thickness (mm)
-thickness = 3;
 
 /////////////////////////////////////////////////////////////////////
 
@@ -85,7 +93,7 @@ module enclosure() {
   // END 2D LAYOUT
 
   // BEGIN 3D PREVIEW
-  translate([0, 0, 0] - baffle_inset)  preview(); color("green", alpha=0.5) layout_3d(box_inner, thickness) {
+  translate([0, 0, 0] - baffle_inset)  preview(); button_holder_preview(); color("green", alpha=0.5) layout_3d(box_inner, thickness) {
   // END 3D PREVIEW
 
     empty();
@@ -102,6 +110,12 @@ module enclosure() {
     difference() {
       side_yz(box_inner, thickness, fingers);
       etchings(long_strip_rows, box_inner[1], 0);
+      translate([box_inner[1] - thickness - button_holder_distance, button_holder_clearance]) {
+        square([thickness, button_holder_h/3]);
+        translate([0, button_holder_h * 2/3])
+          square([thickness, button_holder_h/3]);
+
+      }
     }
     // top
     difference() {
@@ -187,8 +201,37 @@ module preview() {
     top();
 }
 
+module button_holder_preview() {
+  color("red")
+  translate([0, thickness + button_holder_distance, button_holder_clearance])
+    rotate([90, 0, 0])
+      linear_extrude(height=thickness)
+        button_holder();
+  translate([5, 12.5, 0])
+  rotate([0, -90, 0])
+  cube([38, 18, 5]);
+}
+
 module top() {
   cube([display[0], display[1], clear_acrylic_top]);
+}
+
+module button_holder() {
+  difference() {
+    square([button_holder_w, button_holder_h]);
+    translate([button_position[0], button_holder_h/2])
+      square([button_holder_h + 2, 2], center=true);
+    }
+
+  translate([-thickness, 0])
+    square([thickness, button_holder_h/3]);
+  translate([-thickness, button_holder_h * (2/3)])
+    square([thickness, button_holder_h/3]);
+
+  translate([button_holder_w, 0])
+    square([baffle_stock[2], button_holder_h/3]);
+  translate([button_holder_w, button_holder_h * (2/3)])
+    square([baffle_stock[2], button_holder_h/3]);
 }
 
 module led_strip(length, led_per_meter) {
