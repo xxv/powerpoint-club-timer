@@ -2,19 +2,11 @@ use <paginate.scad>;
 use <flat_pack_joints/boxmaker.scad>;
 
 // The size of a piece of baffle_stock material
-//stock = [610, 457, 1.58]; // 24x18
-//stock = [812, 457, 1.58]; // 32x18
-//stock = [2438, 1219, 1.58]; // 96x48
 baffle_stock = [480, 279, 1.58];   // 11x19
-//baffle_stock = [300, 300, 1.5875];
 
 // the size an individual pixel needs to be
 pixel = [33.334, 33.334, 50];
 
-// the full size of the display
-//display = [2440, 502, pixel[2]];
-
-//display_in_px = [73, 15, 1];
 display_in_px = [3, 2, 1];
 display = [pixel[0] * display_in_px[0], pixel[1] * display_in_px[1], pixel[2]];
 
@@ -22,16 +14,22 @@ led_strip_width = 10;
 led_strip_thickness = 0.5;
 apa102 = [5, 5, 1.5];
 
+usb_cutout = [8, 12];
+usb_cutout_offset = 11.4;
+
+button_hole_r = 6;
+button_position = [pixel[0]/2, button_hole_r + 1];
+
 clear_acrylic_top = 3;
 lip = clear_acrylic_top/2;
 // inset the baffle so it can be held in place by the walls
 baffle_inset = [1, 1, 0];
+// extra width in etch to make baffle join with wood
+baffle_etch_extra = 0.5;
 
 short_strip_rows = [ for (x = [pixel[0] : pixel[0] : display[0] - pixel[0]]) x ];
 long_strip_rows  = [ for (x = [pixel[1] : pixel[1] : display[1] - pixel[1]]) x ];
 
-
-*preview();
 
 *cut_strips();
 *cut_top();
@@ -48,11 +46,29 @@ thickness = 3;
 
 module etchings(offsets, width, extra) {
   etch_inset = [0.1, 0];
+  slot_w = baffle_stock[2] + baffle_etch_extra;
+  front_w = clear_acrylic_top + baffle_etch_extra;
+
   for (x = offsets)
-    translate([x - baffle_stock[2]/2 - baffle_inset[0], etch_inset[0]])
-      square([baffle_stock[2], display[2]]);
+    translate([x - slot_w/2 - baffle_inset[0], etch_inset[0]])
+      square([slot_w, display[2]]);
   translate([-extra/2, display[2]] + etch_inset)
-    square([width + extra, clear_acrylic_top] - etch_inset * 2);
+    square([width + extra, front_w] - etch_inset * 2);
+}
+
+module layout_2d_inside_etch(box_inner, thickness) {
+  layout_2d(box_inner, thickness) {
+    children(0);
+    children(1);
+    rotate([0, 180])
+      children(2);
+    rotate([0, 180])
+      children(3);
+    rotate([0, 180])
+      children(4);
+    rotate([0, 180])
+      children(5);
+  }
 }
 
 module enclosure() {
@@ -65,7 +81,7 @@ module enclosure() {
   fingers = [finger_width, finger_width, finger_width, 0, 0];
 
   // BEGIN 2D LAYOUT
-  //layout_2d(box_inner, thickness) {
+  //layout_2d_inside_etch(box_inner, thickness) {
   // END 2D LAYOUT
 
   // BEGIN 3D PREVIEW
@@ -73,11 +89,21 @@ module enclosure() {
   // END 3D PREVIEW
 
     empty();
-    side_xy(box_inner, thickness, fingers);
+    // back
+    difference() {
+      side_xy(box_inner, thickness, fingers);
+      translate([-thickness - 0.01, box_inner[1] - usb_cutout_offset - usb_cutout[1]])
+        square(usb_cutout + [thickness, 0]);
+      translate([30, 54])
+        rotate([0, 0, -90])
+          import("branding.dxf");
+    }
+    // bottom
     difference() {
       side_yz(box_inner, thickness, fingers);
       etchings(long_strip_rows, box_inner[1], 0);
     }
+    // top
     difference() {
       side_yz(box_inner, thickness, fingers);
       etchings(long_strip_rows, box_inner[1], 0);
@@ -85,6 +111,8 @@ module enclosure() {
     difference() {
       side_xz(box_inner, thickness, fingers);
       etchings(short_strip_rows, box_inner[0], baffle_inset[0] * 2);
+      translate(button_position)
+        circle(r=button_hole_r);
     }
     difference() {
       side_xz(box_inner, thickness, fingers);
