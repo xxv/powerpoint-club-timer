@@ -7,16 +7,16 @@
 
 struct timer_square {
   CRGB color;
-  long start_ms;
-  long end_ms;
-  long end_notify_ms;
+  uint32_t start_ms;
+  uint32_t end_ms;
+  uint32_t end_notify_ms;
 };
 
 enum Mode { count_down, animation };
 
 // Configuration constants
-const static long LONG_PRESS_MS = 3000;
-const static long ANIMATION_TIMEOUT_MS = MIN_IN_MS(10);
+const static uint32_t LONG_PRESS_MS = 3000;
+const static uint32_t ANIMATION_TIMEOUT_MS = MIN_IN_MS(10);
 const static uint8_t NUM_LEDS = 5;
 const static uint8_t SECONDS_PER_SQUARE = 60;
 const static uint8_t FEEDBACK_PULSE_MS = 192;
@@ -38,13 +38,12 @@ const static timer_square squares[] = {
 Button button(5, true, true, 20);
 Mode mode = count_down;
 CRGB leds[NUM_LEDS];
-long counter = 0;
-long second_counter = 0;
+uint32_t counter = 0;
 size_t i;
 uint8_t hue;
 
 void reset_counter() {
-  counter = 0;
+  counter = GET_MILLIS();
 }
 
 void check_buttons() {
@@ -67,47 +66,44 @@ void setup() {
   FastLED.clear(true);
 }
 
+uint32_t time;
+
 void loop() {
   check_buttons();
 
   if (mode == count_down) {
     EVERY_N_MILLIS(8) { // 125 FPS
+      time = GET_MILLIS() - counter;
       for (i = 0; i < NUM_LEDS; i++) {
         leds[i] = squares[i].color;
 
         // dim the squares based on the counter
-        if (counter >= squares[i].start_ms && counter < squares[i].end_ms) {
-          fract8 fade = (256 * (counter - squares[i].start_ms))
+        if (time >= squares[i].start_ms && time < squares[i].end_ms) {
+          fract8 fade = (256 * (time - squares[i].start_ms))
             / (squares[i].end_ms - squares[i].start_ms);
           leds[i].fadeToBlackBy(lerp8by8(0, 255, fade));
 
-          if (squares[i].end_notify_ms && counter >= squares[i].end_notify_ms) {
-            fract8 end_fade = (256 * (counter - squares[i].end_notify_ms))
+          if (squares[i].end_notify_ms && time >= squares[i].end_notify_ms) {
+            fract8 end_fade = (256 * (time - squares[i].end_notify_ms))
               / (squares[i].end_ms - squares[i].end_notify_ms);
 
-            leds[i] = leds[i].lerp8(leds[i] + TIMEOUT_PULSE_COLOR, map8(sin8((counter / 10) % 256), 0, end_fade));
+            leds[i] = leds[i].lerp8(leds[i] + TIMEOUT_PULSE_COLOR, map8(sin8((time / 10) % 256), 0, end_fade));
           }
-        } else if (counter >= squares[i].end_ms) {
+        } else if (time >= squares[i].end_ms) {
           leds[i] = CRGB::Black;
         }
       }
 
-      if (counter < FEEDBACK_PULSE_MS) {
+      if (time < FEEDBACK_PULSE_MS) {
         for (i = 0; i < NUM_LEDS; i++) {
-          leds[i] = blend(leds[i], leds[i] + FEEDBACK_PULSE_COLOR, sin8(counter % 256));
+          leds[i] = blend(leds[i], leds[i] + FEEDBACK_PULSE_COLOR, sin8(time % 256));
         }
       }
 
       FastLED.show();
-
-      counter += 8;
     } // each frame
 
-    EVERY_N_SECONDS(1) {
-      second_counter += 1;
-    }
-
-    if (counter >= ANIMATION_TIMEOUT_MS) {
+    if (time >= ANIMATION_TIMEOUT_MS) {
       mode = animation;
     }
   } else if (mode == animation) {
