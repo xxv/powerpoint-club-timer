@@ -43,6 +43,7 @@ long_strip_rows  = [ for (x = [pixel[1] : pixel[1] : display[1] - pixel[1]]) x ]
 
 
 *cut_top();
+cut_strips();
 
 *button_holder();
 
