@@ -1,9 +1,10 @@
 #include <Arduino.h>
 #include <Button.h>
+#include <EEPROM.h>
 #include <FastLED.h>
 
-#define SEC_IN_MS(N) (N * 1000)
-#define MIN_IN_MS(N) (N * 60000)
+#define SEC_IN_MS(N) (N * 1000l)
+#define MIN_IN_MS(N) (N * 60000l)
 
 struct timer_square {
   CRGB color;
@@ -12,16 +13,21 @@ struct timer_square {
   uint32_t end_notify_ms;
 };
 
-enum Mode { count_down, animation };
+enum Mode { count_down, config, animation };
 
 // Configuration constants
-const static uint32_t LONG_PRESS_MS = 3000;
+const static uint8_t TIME_SCALE = 1; // 1 is realtime; 10 is 10x fast
+const static uint32_t LONG_PRESS_MS = SEC_IN_MS(3);
+const static uint32_t CONFIG_TIMEOUT_MS = SEC_IN_MS(10);
 const static uint32_t ANIMATION_TIMEOUT_MS = MIN_IN_MS(10);
 const static uint8_t NUM_LEDS = 5;
 const static uint8_t SECONDS_PER_SQUARE = 60;
 const static uint8_t FEEDBACK_PULSE_MS = 192;
-const static CRGB TIMEOUT_PULSE_COLOR = CRGB(80, 0, 0);
+const static CRGB TIMEOUT_PULSE_COLOR = CRGB(80, 80, 80);
 const static CRGB FEEDBACK_PULSE_COLOR = CRGB(50, 50, 50);
+const static uint8_t EEPROM_BRIGHTNESS = 0;
+
+const static uint8_t BRIGHTNESS_LEVELS[] = { 255, 32, 64, 128 };
 
 const static timer_square squares[] = {
   { .color = CRGB::Yellow, .start_ms = MIN_IN_MS(4), .end_ms = MIN_IN_MS(5),
@@ -39,23 +45,61 @@ Button button(5, true, true, 20);
 Mode mode = count_down;
 CRGB leds[NUM_LEDS];
 uint32_t counter = 0;
+uint32_t config_timer = 0;
 size_t i;
 uint8_t hue;
+uint8_t brightness_level;
+bool button_handled = false;
 
 void reset_counter() {
   counter = GET_MILLIS();
 }
 
+void reset_config_timer() {
+  config_timer = GET_MILLIS();
+}
+
+void set_mode(Mode new_mode) {
+  mode = new_mode;
+
+  switch (new_mode) {
+    case config:
+      reset_config_timer();
+      break;
+    case count_down:
+      reset_counter();
+      break;
+    case animation:
+      break;
+  }
+}
+
 void check_buttons() {
   button.read();
 
-  if (button.pressedFor(LONG_PRESS_MS)) {
-    if (mode == count_down) {
-      mode = animation;
+  if (mode == animation || mode == count_down) {
+    if (!button_handled && button.pressedFor(LONG_PRESS_MS)) {
+      if (mode == count_down) {
+        set_mode(config);
+        button_handled = true;
+      }
+    } else if (button.wasPressed()) {
+      set_mode(count_down);
     }
-  } else if (button.wasPressed()) {
-    mode = count_down;
-    reset_counter();
+  } else if (mode == config) {
+    if (!button_handled && button.pressedFor(LONG_PRESS_MS)) {
+      set_mode(count_down);
+      button_handled = true;
+    } else if (!button_handled && button.wasReleased()) {
+      brightness_level = (brightness_level + 1) % sizeof(BRIGHTNESS_LEVELS);
+      FastLED.setBrightness(BRIGHTNESS_LEVELS[brightness_level]);
+      EEPROM.write(EEPROM_BRIGHTNESS, brightness_level);
+      reset_config_timer();
+    }
+  }
+
+  if (button.wasReleased()) {
+    button_handled = false;
   }
 }
 
@@ -64,6 +108,14 @@ void setup() {
   FastLED.setDither(0);
   reset_counter();
   FastLED.clear(true);
+
+  brightness_level = EEPROM.read(EEPROM_BRIGHTNESS);
+
+  if (brightness_level >= sizeof(BRIGHTNESS_LEVELS)) {
+    brightness_level = 0;
+  }
+
+  FastLED.setBrightness(BRIGHTNESS_LEVELS[brightness_level]);
 }
 
 uint32_t time;
@@ -73,7 +125,7 @@ void loop() {
 
   if (mode == count_down) {
     EVERY_N_MILLIS(8) { // 125 FPS
-      time = GET_MILLIS() - counter;
+      time = (GET_MILLIS() - counter) * TIME_SCALE;
       for (i = 0; i < NUM_LEDS; i++) {
         leds[i] = squares[i].color;
 
@@ -104,7 +156,7 @@ void loop() {
     } // each frame
 
     if (time >= ANIMATION_TIMEOUT_MS) {
-      mode = animation;
+      set_mode(animation);
     }
   } else if (mode == animation) {
     EVERY_N_MILLIS(64) { // 125 FPS
@@ -113,5 +165,20 @@ void loop() {
 
       FastLED.show();
     } // frame
+  } else if (mode == config) {
+    time = GET_MILLIS() - config_timer;
+
+    if (time >= CONFIG_TIMEOUT_MS) {
+      set_mode(count_down);
+    }
+
+    EVERY_N_MILLIS(8) {
+      leds[0] = CRGB::Black;
+      leds[1] = CRGB::Black;
+      leds[2] = CHSV(0, 0, 85);
+      leds[3] = CHSV(0, 0, 170);
+      leds[4] = CHSV(0, 0, 255);
+      FastLED.show();
+    }
   }
 }
