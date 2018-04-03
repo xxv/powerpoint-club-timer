@@ -159,8 +159,8 @@ void loop() {
       set_mode(animation);
     }
   } else if (mode == animation) {
-    EVERY_N_MILLIS(64) { // 125 FPS
-      fill_rainbow(leds, NUM_LEDS, hue, 256/NUM_LEDS);
+    EVERY_N_MILLIS(64) { // 15 FPS
+      fill_rainbow(leds, NUM_LEDS, hue, 25);
       hue = (hue + 1) % 256;
 
       FastLED.show();
