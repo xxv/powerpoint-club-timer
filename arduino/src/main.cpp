@@ -15,7 +15,7 @@ struct timer_square {
 
 enum Mode { count_down, config, animation };
 enum ConfigMode { cfg_brightness, cfg_pattern };
-enum Pattern { pat_rainbow, pat_pop, pat_solid };
+enum Pattern { pat_rainbow, pat_pop, pat_solid, PATTERN_COUNT };
 
 // Configuration constants
 const static uint8_t TIME_SCALE = 1; // 1 is realtime; 10 is 10x fast
@@ -148,7 +148,7 @@ void setup() {
 
   uint8_t pattern_load = EEPROM.read(EEPROM_PATTERN);
 
-  if (pattern_load >= 2) {
+  if (pattern_load >= PATTERN_COUNT) {
     pattern_load = 0;
   }
 
@@ -196,13 +196,22 @@ void loop() {
       set_mode(animation);
     }
   } else if (mode == animation) {
-    if (pattern == pat_rainbow || pattern == pat_solid) {
+    if (pattern == pat_rainbow) {
       EVERY_N_MILLIS(64) { // 15 FPS
-        fill_rainbow(leds, NUM_LEDS, hue, pattern == pat_rainbow ? 25 : 0);
+        fill_rainbow(leds, NUM_LEDS, hue, 25);
         hue = (hue + 1) % 256;
 
         FastLED.show();
       } // frame
+    } else if (pattern == pat_solid) {
+      EVERY_N_MILLIS(256) {
+        fill_rainbow(leds, NUM_LEDS, hue, 18);
+        leds[1] = leds[2];
+        leds[0] = leds[3];
+        hue = (hue + 1) % 256;
+
+        FastLED.show();
+      }
     } else if (pattern == pat_pop) {
       EVERY_N_MILLIS(8) {
         FastLED.clear(false);
