@@ -55,10 +55,12 @@ CRGB leds[NUM_LEDS];
 uint32_t counter = 0;
 uint32_t config_timer = 0;
 size_t i;
+uint32_t time;
 uint8_t brightness_level;
 bool button_handled = false;
 
 uint8_t hue = 0;
+uint8_t pat_preview_solid_hue = 0;
 CRGB pop_color = CHSV(random8(), 255, 255);
 uint8_t pop_fade = 0;
 uint8_t pop_led = random8(NUM_LEDS);
@@ -89,19 +91,7 @@ void set_mode(Mode new_mode) {
   }
 }
 
-void check_buttons() {
-  button.read();
-
-  if (mode == animation || mode == count_down) {
-    if (!button_handled && button.pressedFor(LONG_PRESS_MS)) {
-      if (mode == count_down) {
-        set_mode(config);
-        button_handled = true;
-      }
-    } else if (button.wasPressed()) {
-      set_mode(count_down);
-    }
-  } else if (mode == config) {
+void handle_config_buttons() {
     if (!button_handled && button.pressedFor(CONFIG_LONG_PRESS_MS)) {
       switch (config_mode) {
         case cfg_pattern:
@@ -125,10 +115,163 @@ void check_buttons() {
       }
       reset_config_timer();
     }
+}
+
+void check_buttons() {
+  button.read();
+
+  if (mode == animation || mode == count_down) {
+    if (!button_handled && button.pressedFor(LONG_PRESS_MS)) {
+      if (mode == count_down) {
+        set_mode(config);
+        button_handled = true;
+      }
+    } else if (button.wasPressed()) {
+      set_mode(count_down);
+    }
+  } else if (mode == config) {
+    handle_config_buttons();
   }
 
   if (button.wasReleased()) {
     button_handled = false;
+  }
+}
+
+void draw_mode_countdown() {
+  EVERY_N_MILLIS(8) { // 125 FPS
+    time = (GET_MILLIS() - counter) * TIME_SCALE;
+    for (i = 0; i < NUM_LEDS; i++) {
+      leds[i] = squares[i].color;
+
+      // dim the squares based on the counter
+      if (time >= squares[i].start_ms && time < squares[i].end_ms) {
+        fract8 fade = (256 * (time - squares[i].start_ms))
+          / (squares[i].end_ms - squares[i].start_ms);
+        leds[i].fadeToBlackBy(lerp8by8(0, 255, fade));
+
+        if (squares[i].end_notify_ms && time >= squares[i].end_notify_ms) {
+          fract8 end_fade = (256 * (time - squares[i].end_notify_ms))
+            / (squares[i].end_ms - squares[i].end_notify_ms);
+
+          leds[i] = leds[i].lerp8(leds[i] + TIMEOUT_PULSE_COLOR, map8(sin8((time / TIMEOUT_PULSE_SPEED) % 256), 0, end_fade));
+        }
+      } else if (time >= squares[i].end_ms) {
+        leds[i] = CRGB::Black;
+      }
+    }
+
+    if (time < FEEDBACK_PULSE_MS) {
+      for (i = 0; i < NUM_LEDS; i++) {
+        leds[i] = blend(leds[i], leds[i] + FEEDBACK_PULSE_COLOR, sin8(time % 256));
+      }
+    }
+
+    FastLED.show();
+  } // each frame
+
+  if (time >= ANIMATION_TIMEOUT_MS) {
+    set_mode(animation);
+  }
+}
+
+void draw_pattern_rainbow() {
+  EVERY_N_MILLIS(64) { // 15 FPS
+    fill_rainbow(leds, NUM_LEDS, hue, 25);
+    hue = (hue + 1) % 256;
+
+    FastLED.show();
+  } // frame
+}
+
+void draw_pattern_solid() {
+  EVERY_N_MILLIS(256) {
+    fill_rainbow(leds, NUM_LEDS, hue, 18);
+    leds[1] = leds[2];
+    leds[0] = leds[3];
+    hue = (hue + 1) % 256;
+
+    FastLED.show();
+  }
+}
+
+void draw_pattern_pop() {
+  EVERY_N_MILLIS(8) {
+    FastLED.clear(false);
+    leds[pop_led] = pop_color;
+    leds[pop_led].fadeToBlackBy(pop_fade);
+
+    pop_fade += 1;
+
+    if (pop_fade == 255) {
+      pop_fade = 0;
+      pop_color = CHSV(random8(), 255, 255);
+      pop_led = random8(NUM_LEDS);
+    }
+    FastLED.show();
+  }
+}
+
+void draw_mode_animation() {
+  if (pattern == pat_rainbow) {
+    draw_pattern_rainbow();
+  } else if (pattern == pat_solid) {
+    draw_pattern_solid();
+  } else if (pattern == pat_pop) {
+    draw_pattern_pop();
+  }
+}
+
+void draw_mode_config() {
+  time = GET_MILLIS() - config_timer;
+
+  if (time >= CONFIG_TIMEOUT_MS) {
+    set_mode(count_down);
+  }
+
+  EVERY_N_MILLIS(500) {
+    cursor_blink = !cursor_blink;
+  }
+
+  EVERY_N_MILLIS(8) {
+    leds[0] = CHSV(0, 0, (config_mode == cfg_pattern &&
+                          cursor_blink) ? 128 : 32);
+    leds[1] = CHSV(0, 0, (config_mode == cfg_brightness &&
+                          cursor_blink) ? 128 : 32);
+    if (config_mode == cfg_brightness) {
+      leds[2] = CHSV(0, 0, 85);
+      leds[3] = CHSV(0, 0, 170);
+      leds[4] = CHSV(0, 0, 255);
+    } else if (config_mode == cfg_pattern) {
+      leds[2] = CHSV(hue, 255, 255);
+      leds[3] = pop_color;
+      leds[3].fadeToBlackBy(pop_fade);
+      leds[4] = CHSV(pat_preview_solid_hue, 255, 255);
+      if (pattern != pat_rainbow) {
+        leds[2].fadeToBlackBy(224);
+      }
+      if (pattern != pat_pop) {
+        leds[3].fadeToBlackBy(224);
+      }
+      if (pattern != pat_solid) {
+        leds[4].fadeToBlackBy(224);
+      }
+    }
+
+    hue += 1;
+
+    EVERY_N_MILLIS(64) {
+      pat_preview_solid_hue += 1;
+    }
+
+    pop_fade += 1;
+
+    if (pop_fade == 255) {
+      pop_fade = 0;
+      pop_color = CHSV(random8(), 255, 255);
+    }
+
+    FastLED.show();
   }
 }
 
@@ -155,125 +298,14 @@ void setup() {
   pattern = (Pattern)pattern_load;
 }
 
-uint32_t time;
-
 void loop() {
   check_buttons();
 
   if (mode == count_down) {
-    EVERY_N_MILLIS(8) { // 125 FPS
-      time = (GET_MILLIS() - counter) * TIME_SCALE;
-      for (i = 0; i < NUM_LEDS; i++) {
-        leds[i] = squares[i].color;
-
-        // dim the squares based on the counter
-        if (time >= squares[i].start_ms && time < squares[i].end_ms) {
-          fract8 fade = (256 * (time - squares[i].start_ms))
-            / (squares[i].end_ms - squares[i].start_ms);
-          leds[i].fadeToBlackBy(lerp8by8(0, 255, fade));
-
-          if (squares[i].end_notify_ms && time >= squares[i].end_notify_ms) {
-            fract8 end_fade = (256 * (time - squares[i].end_notify_ms))
-              / (squares[i].end_ms - squares[i].end_notify_ms);
-
-            leds[i] = leds[i].lerp8(leds[i] + TIMEOUT_PULSE_COLOR, map8(sin8((time / TIMEOUT_PULSE_SPEED) % 256), 0, end_fade));
-          }
-        } else if (time >= squares[i].end_ms) {
-          leds[i] = CRGB::Black;
-        }
-      }
-
-      if (time < FEEDBACK_PULSE_MS) {
-        for (i = 0; i < NUM_LEDS; i++) {
-          leds[i] = blend(leds[i], leds[i] + FEEDBACK_PULSE_COLOR, sin8(time % 256));
-        }
-      }
-
-      FastLED.show();
-    } // each frame
-
-    if (time >= ANIMATION_TIMEOUT_MS) {
-      set_mode(animation);
-    }
+    draw_mode_countdown();
   } else if (mode == animation) {
-    if (pattern == pat_rainbow) {
-      EVERY_N_MILLIS(64) { // 15 FPS
-        fill_rainbow(leds, NUM_LEDS, hue, 25);
-        hue = (hue + 1) % 256;
-
-        FastLED.show();
-      } // frame
-    } else if (pattern == pat_solid) {
-      EVERY_N_MILLIS(256) {
-        fill_rainbow(leds, NUM_LEDS, hue, 18);
-        leds[1] = leds[2];
-        leds[0] = leds[3];
-        hue = (hue + 1) % 256;
-
-        FastLED.show();
-      }
-    } else if (pattern == pat_pop) {
-      EVERY_N_MILLIS(8) {
-        FastLED.clear(false);
-        leds[pop_led] = pop_color;
-        leds[pop_led].fadeToBlackBy(pop_fade);
-
-        pop_fade += 1;
-
-        if (pop_fade == 255) {
-          pop_fade = 0;
-          pop_color = CHSV(random8(), 255, 255);
-          pop_led = random8(NUM_LEDS);
-        }
-        FastLED.show();
-      }
-    }
+    draw_mode_animation();
   } else if (mode == config) {
-    time = GET_MILLIS() - config_timer;
-
-    if (time >= CONFIG_TIMEOUT_MS) {
-      set_mode(count_down);
-    }
-
-    EVERY_N_MILLIS(500) {
-      cursor_blink = !cursor_blink;
-    }
-
-    EVERY_N_MILLIS(8) {
-      leds[0] = CHSV(0, 0, (config_mode == cfg_pattern &&
-                            cursor_blink) ? 128 : 32);
-      leds[1] = CHSV(0, 0, (config_mode == cfg_brightness &&
-                            cursor_blink) ? 128 : 32);
-      if (config_mode == cfg_brightness) {
-        leds[2] = CHSV(0, 0, 85);
-        leds[3] = CHSV(0, 0, 170);
-        leds[4] = CHSV(0, 0, 255);
-      } else if (config_mode == cfg_pattern) {
-        leds[2] = CHSV(hue, 255, 255);
-        leds[3] = pop_color;
-        leds[3].fadeToBlackBy(pop_fade);
-        leds[4] = CHSV(hue, 255, 255);
-        if (pattern != pat_rainbow) {
-          leds[2].fadeToBlackBy(224);
-        }
-        if (pattern != pat_pop) {
-          leds[3].fadeToBlackBy(224);
-        }
-        if (pattern != pat_solid) {
-          leds[4].fadeToBlackBy(224);
-        }
-      }
-
-      hue += 1;
-
-      pop_fade += 1;
-
-      if (pop_fade == 255) {
-        pop_fade = 0;
-        pop_color = CHSV(random8(), 255, 255);
-      }
-
-      FastLED.show();
-    }
+    draw_mode_config();
   }
 }
